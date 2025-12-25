@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "superset": {
+      "command": "python",
+      "args": ["-m", "superset.mcp_service"],
+      "env": {
+        "SUPERSET_CONFIG_PATH": "./superset_config.py"
+      }
+    }
+  }
+}

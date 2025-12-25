@@ -48,6 +48,18 @@ LANGUAGES = {
     'en': {'flag': 'us', 'name': 'English'},
 }
 
+# Basic configuration
+MCP_DEV_USERNAME = "admin"  # User for development/testing
+
+# Optional: JWT authentication for production
+# MCP_AUTH_ENABLED = True
+# MCP_JWT_PUBLIC_KEY = "your_public_key_here"
+# MCP_JWT_ALGORITHM = "RS256"
+
+# Optional: Screenshot configuration
+WEBDRIVER_BASEURL = "http://localhost:8088/"
+WEBDRIVER_TYPE = "chrome"
+
 # The SQLAlchemy connection string.
 SQLALCHEMY_DATABASE_URI = (
     f"{DATABASE_DIALECT}://"
