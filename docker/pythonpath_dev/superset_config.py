@@ -42,6 +42,12 @@ EXAMPLES_HOST = os.getenv("EXAMPLES_HOST")
 EXAMPLES_PORT = os.getenv("EXAMPLES_PORT")
 EXAMPLES_DB = os.getenv("EXAMPLES_DB")
 
+BABEL_DEFAULT_LOCALE = 'zh'
+LANGUAGES = {
+    'zh': {'flag': 'cn', 'name': '中文'},
+    'en': {'flag': 'us', 'name': 'English'},
+}
+
 # The SQLAlchemy connection string.
 SQLALCHEMY_DATABASE_URI = (
     f"{DATABASE_DIALECT}://"
