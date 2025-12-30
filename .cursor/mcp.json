@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "superset": {
-      "command": "python",
+    "superset-local": {
+      "command": "/home/ajuck/Projects/superset/.venv/bin/python",
       "args": ["-m", "superset.mcp_service"],
       "env": {
-        "SUPERSET_CONFIG_PATH": "./superset_config.py"
+        "SUPERSET_CONFIG_PATH": "/home/ajuck/Projects/superset/docker/pythonpath_dev/mcp_config.py"
       }
     }
   }
