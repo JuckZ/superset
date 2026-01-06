@@ -33,9 +33,17 @@ ARG LOAD_EXAMPLES_DUCKDB="false"
 # superset-node-ci used as a base for building frontend assets and CI
 ######################################################################
 FROM --platform=${BUILDPLATFORM} node:20-trixie-slim AS superset-node-ci
+
+# Configure APT mirror for faster downloads (China mirror)
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
+
+# Configure npm registry mirror
+RUN npm config set registry https://registry.npmmirror.com
+
 ARG BUILD_TRANSLATIONS
 ENV BUILD_TRANSLATIONS=${BUILD_TRANSLATIONS}
-ARG DEV_MODE="false"           # Skip frontend build in dev mode
+ARG DEV_MODE="true"           # Skip frontend build in dev mode
 ENV DEV_MODE=${DEV_MODE}
 
 COPY docker/ /app/docker/
@@ -105,6 +113,10 @@ RUN if [ "${BUILD_TRANSLATIONS}" = "true" ]; then \
 ######################################################################
 FROM python:${PY_VER} AS python-base
 
+# Configure APT mirror for faster downloads (China mirror)
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
+
 ARG SUPERSET_HOME="/app/superset_home"
 ENV SUPERSET_HOME=${SUPERSET_HOME}
 
@@ -116,7 +128,13 @@ RUN useradd --user-group -d ${SUPERSET_HOME} -m --no-log-init --shell /bin/bash 
 # Some bash scripts needed throughout the layers
 COPY --chmod=755 docker/*.sh /app/docker/
 
+# Configure pip mirror for faster downloads (China mirror)
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
 RUN pip install --no-cache-dir --upgrade uv
+
+# Configure uv to use pip mirror
+ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Using uv as it's faster/simpler than pip
 RUN uv venv /app/.venv
@@ -235,6 +253,11 @@ EXPOSE ${SUPERSET_PORT}
 ######################################################################
 FROM python-common AS lean
 
+# Install system dependencies needed for MySQL client compilation
+RUN /app/docker/apt-install.sh \
+    pkg-config \
+    default-libmysqlclient-dev
+
 # Install Python dependencies using docker/pip-install.sh
 COPY requirements/base.txt requirements/
 
@@ -246,6 +269,14 @@ RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     uv pip install -e .
+
+# Re-install build-essential for mysqlclient compilation
+# (it was removed by pip-install.sh after base.txt installation)
+RUN /app/docker/apt-install.sh build-essential
+
+# Install database connectors
+RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
+    uv pip install .[postgres,mysql,lark-oapi]
 RUN python -m compileall /app/superset
 
 USER superset
@@ -275,7 +306,8 @@ RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     uv pip install -e .
 
-RUN uv pip install .[postgres]
+RUN uv pip install .[postgres,mysql,lark-oapi]
+
 RUN python -m compileall /app/superset
 
 USER superset

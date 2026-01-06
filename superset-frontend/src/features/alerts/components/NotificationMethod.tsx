@@ -340,7 +340,8 @@ export const NotificationMethod: FunctionComponent<NotificationMethodProps> = ({
               method === NotificationMethodOption.Slack) ||
             (isFeatureEnabled(FeatureFlag.AlertReportWebhook) &&
               method === NotificationMethodOption.Webhook) ||
-            method === NotificationMethodOption.Email,
+            method === NotificationMethodOption.Email ||
+            method === NotificationMethodOption.LarkApp,
         )
         .map(method => ({
           label:
@@ -539,6 +540,26 @@ export const NotificationMethod: FunctionComponent<NotificationMethodProps> = ({
                       <div className="input-container">
                         <div className="helper">
                           {t('Recipients are separated by "," or ";"')}
+                        </div>
+                      </div>
+                    </>
+                  ) : method === NotificationMethodOption.LarkApp ? (
+                    // for LarkApp
+                    <>
+                      <div className="input-container">
+                        <Input.TextArea
+                          name="To"
+                          data-test="recipients"
+                          value={recipientValue}
+                          onChange={onRecipientsChange}
+                          placeholder={t('Enter recipient configuration')}
+                        />
+                      </div>
+                      <div className="input-container">
+                        <div className="helper">
+                          {t(
+                            'Format: {"open_id": ["ou_xxx"], "user_id": ["123"], "email": ["user@example.com"], "chat_id": ["oc_xxx"]}',
+                          )}
                         </div>
                       </div>
                     </>

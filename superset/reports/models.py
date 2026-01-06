@@ -67,6 +67,7 @@ class ReportRecipientType(StrEnum):
     SLACK = "Slack"
     SLACKV2 = "SlackV2"
     WEBHOOK = "Webhook"
+    LARK_APP = "LarkApp"
 
 
 class ReportState(StrEnum):
