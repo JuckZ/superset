@@ -21,8 +21,16 @@ import logging
 from typing import Any
 
 import lark_oapi as lark
+import pandas as pd
 from flask import current_app
-from lark_oapi.api.im.v1 import CreateImageRequest, CreateImageRequestBody
+from lark_oapi.api.im.v1 import (
+    CreateFileRequest,
+    CreateFileRequestBody,
+    CreateImageRequest,
+    CreateImageRequestBody,
+    CreateMessageRequest,
+    CreateMessageRequestBody,
+)
 
 from superset.reports.models import ReportRecipientType
 from superset.reports.notifications.base import BaseNotification
@@ -104,6 +112,139 @@ class LarkAppNotification(BaseNotification):
             logger.warning("Error uploading image to Lark: %s", str(ex))
             return None
 
+    def _upload_file(
+        self, file_bytes: bytes, filename: str, file_type: str, client: lark.Client
+    ) -> str | None:
+        """
+        Upload file to Lark and get file_key.
+        Reference: https://open.feishu.cn/document/server-docs/im-v1/file/create
+        :param file_bytes: File bytes to upload
+        :param filename: File name to use in Lark
+        :param file_type: File type (pdf, doc, xls, ppt, stream)
+        :param client: Lark client instance
+        :returns: File key if successful, None otherwise
+        """
+        try:
+            file_obj = io.BytesIO(file_bytes)
+            request_body = (
+                CreateFileRequestBody.builder()
+                .file_type(file_type)
+                .file_name(filename)
+                .file(file_obj)
+                .build()
+            )
+            request = CreateFileRequest.builder().request_body(request_body).build()
+            response = client.im.v1.file.create(request)
+
+            if response.code == 0:
+                file_key = response.data.file_key if response.data else None
+                if file_key:
+                    logger.debug("Successfully uploaded file, file_key: %s", file_key)
+                    return file_key
+                logger.warning("File upload succeeded but no file_key returned")
+                return None
+
+            logger.warning(
+                "Failed to upload file: code=%s, msg=%s",
+                response.code,
+                response.msg,
+            )
+            return None
+        except Exception as ex:
+            logger.warning("Error uploading file to Lark: %s", str(ex))
+            return None
+
+    def _csv_to_markdown_table(self, csv_bytes: bytes, max_rows: int = 50) -> str | None:
+        """
+        Convert CSV bytes to markdown table format for preview in card.
+        :param csv_bytes: CSV file bytes
+        :param max_rows: Maximum number of rows to include
+        :returns: Markdown table string or None
+        """
+        try:
+            df = pd.read_csv(io.BytesIO(csv_bytes))
+            if df.empty:
+                return None
+
+            df = df.fillna("")
+            original_row_count = len(df)
+            if original_row_count > max_rows:
+                df = df.head(max_rows)
+
+            markdown_table = df.to_markdown(index=False, tablefmt="pipe")
+
+            if original_row_count > max_rows:
+                markdown_table += (
+                    f"\n\n*(表格已截断，共 {original_row_count} 行，仅显示前 {max_rows} 行)*"
+                )
+
+            return markdown_table
+        except Exception as ex:
+            logger.warning("Error converting CSV to markdown: %s", str(ex))
+            return None
+
+    def _send_message(
+        self,
+        client: lark.Client,
+        receive_id_type: str,
+        recipient_id: str,
+        msg_type: str,
+        content: str,
+    ) -> None:
+        """
+        Send a single message via Lark.
+        :param client: Lark client instance
+        :param receive_id_type: ID type (open_id, etc)
+        :param recipient_id: Recipient ID
+        :param msg_type: Message type (interactive, file, etc)
+        :param content: JSON string of message content
+        :raises NotificationError: If sending fails
+        """
+        try:
+            request_body = (
+                CreateMessageRequestBody.builder()
+                .receive_id(recipient_id)
+                .msg_type(msg_type)
+                .content(content)
+                .build()
+            )
+            request = (
+                CreateMessageRequest.builder()
+                .receive_id_type(receive_id_type)
+                .request_body(request_body)
+                .build()
+            )
+
+            response = client.im.v1.message.create(request)
+
+            if response.code != 0:
+                logger.error(
+                    "Failed to send %s message to %s '%s': code=%s, msg=%s",
+                    msg_type,
+                    receive_id_type,
+                    recipient_id,
+                    response.code,
+                    response.msg,
+                )
+                raise NotificationError(
+                    f"Failed to send {msg_type} message to {receive_id_type} "
+                    f"'{recipient_id}': code={response.code}, msg={response.msg}"
+                )
+
+            logger.info(
+                "Successfully sent %s message to %s '%s'",
+                msg_type,
+                receive_id_type,
+                recipient_id,
+            )
+        except NotificationError:
+            raise
+        except Exception as ex:
+            raise NotificationError(
+                f"Error sending {msg_type} message to {receive_id_type} "
+                f"'{recipient_id}': {ex}"
+            ) from ex
+
     def _build_message_card(self) -> dict[str, Any]:
         """
         Build interactive card message content.
@@ -127,12 +268,19 @@ class LarkAppNotification(BaseNotification):
         if self._content.text:
             markdown_parts.append(f"\n{self._content.text}")
 
+        # Add CSV data as markdown table for preview if available
+        if self._content.csv:
+            csv_table = self._csv_to_markdown_table(self._content.csv)
+            if csv_table:
+                markdown_parts.append("\n**数据预览**:\n")
+                markdown_parts.append(csv_table)
+
         markdown_content = (
             "\n".join(markdown_parts) if markdown_parts else "Superset 告警通知"
         )
 
         # Build card elements
-        elements = [
+        elements: list[dict[str, Any]] = [
             {
                 "tag": "markdown",
                 "content": markdown_content,
@@ -158,38 +306,38 @@ class LarkAppNotification(BaseNotification):
         # Build card structure
         subject = self._content.name if self._content.name else "Superset 告警通知"
 
-        card = {
-            "msg_type": "interactive",
-            "card": {
-                "schema": "2.0",
-                "config": {
-                    "enable_forward": True,
-                    "update_multi": True,
+        card_payload: dict[str, Any] = {
+            "schema": "2.0",
+            "config": {
+                "enable_forward": True,
+                "update_multi": True,
+            },
+            "body": {
+                "direction": "vertical",
+                "elements": elements,
+            },
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": subject,
                 },
-                "body": {
-                    "direction": "vertical",
-                    "elements": elements,
-                },
-                "header": {
-                    "title": {
-                        "tag": "plain_text",
-                        "content": subject,
-                    },
-                    "subtitle": {
-                        "tag": "plain_text",
-                        "content": "点击标题跳转到报表地址",
-                    },
+                "subtitle": {
+                    "tag": "plain_text",
+                    "content": "点击标题跳转到报表地址",
                 },
             },
         }
 
         # Add card_link if URL is available
         if self._content.url:
-            card["card"]["card_link"] = {
+            card_payload["card_link"] = {
                 "url": self._content.url,
             }
 
-        return card
+        return {
+            "msg_type": "interactive",
+            "card": card_payload,
+        }
 
     def _parse_recipients(self) -> dict[str, list[str]]:
         """
@@ -272,56 +420,46 @@ class LarkAppNotification(BaseNotification):
         client = self._get_lark_client()
         recipients_by_type = self._parse_recipients()
 
-        # Build message content
+        # Build message context and card
         message_card = self._build_message_card()
         message_content = json.dumps(message_card["card"])
 
-        # Send to each recipient type
+        # Prepare actual files if they exist (upload once)
+        attachment_file_keys = []
+        filename_prefix = self._content.name or "report"
+
+        if self._content.csv:
+            file_key = self._upload_file(
+                self._content.csv, f"{filename_prefix}.csv", "stream", client
+            )
+            if file_key:
+                attachment_file_keys.append(file_key)
+
+        if self._content.pdf:
+            file_key = self._upload_file(
+                self._content.pdf, f"{filename_prefix}.pdf", "pdf", client
+            )
+            if file_key:
+                attachment_file_keys.append(file_key)
+
+        # Send to each recipient
         for receive_id_type, recipient_ids in recipients_by_type.items():
             for recipient_id in recipient_ids:
-                try:
-                    from lark_oapi.api.im.v1 import (
-                        CreateMessageRequest,
-                        CreateMessageRequestBody,
-                    )
+                # 1. Send the main interactive card
+                self._send_message(
+                    client,
+                    receive_id_type,
+                    recipient_id,
+                    "interactive",
+                    message_content,
+                )
 
-                    request_body = (
-                        CreateMessageRequestBody.builder()
-                        .receive_id(recipient_id)
-                        .msg_type("interactive")
-                        .content(message_content)
-                        .build()
-                    )
-                    request = (
-                        CreateMessageRequest.builder()
-                        .receive_id_type(receive_id_type)
-                        .request_body(request_body)
-                        .build()
-                    )
-
-                    response = client.im.v1.message.create(request)
-
-                    if response.code != 0:
-                        logger.error(
-                            "Failed to send message to %s '%s': code=%s, msg=%s",
-                            receive_id_type,
-                            recipient_id,
-                            response.code,
-                            response.msg,
-                        )
-                        raise NotificationError(
-                            f"Failed to send message to {receive_id_type} '{recipient_id}': "
-                            f"code={response.code}, msg={response.msg}"
-                        )
-
-                    logger.info(
-                        "Successfully sent Lark App notification to %s '%s'",
+                # 2. Send attachments as separate messages
+                for file_key in attachment_file_keys:
+                    self._send_message(
+                        client,
                         receive_id_type,
                         recipient_id,
+                        "file",
+                        json.dumps({"file_key": file_key}),
                     )
-                except NotificationError:
-                    raise
-                except Exception as ex:
-                    raise NotificationError(
-                        f"Error sending message to {receive_id_type} '{recipient_id}': {ex}"
-                    ) from ex
