@@ -257,14 +257,7 @@ class LarkAppNotification(BaseNotification):
         markdown_parts = []
         if self._content.description:
             markdown_parts.append(f"**描述**: {self._content.description}")
-        if self._content.header_data.get("notification_type"):
-            markdown_parts.append(
-                f"**类型**: {self._content.header_data.get('notification_type')}"
-            )
-        if self._content.header_data.get("notification_format"):
-            markdown_parts.append(
-                f"**格式**: {self._content.header_data.get('notification_format')}"
-            )
+
         if self._content.text:
             markdown_parts.append(f"\n{self._content.text}")
 
@@ -323,7 +316,7 @@ class LarkAppNotification(BaseNotification):
                 },
                 "subtitle": {
                     "tag": "plain_text",
-                    "content": "点击标题跳转到报表地址",
+                    "content": "点击跳转到报表地址",
                 },
             },
         }

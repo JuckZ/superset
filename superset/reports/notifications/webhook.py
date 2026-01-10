@@ -243,18 +243,7 @@ class WebhookNotification(BaseNotification):
         markdown_parts = []
         if self._content.description:
             markdown_parts.append(f"**描述**: {self._content.description}")
-        if self._content.header_data.get("notification_type"):
-            markdown_parts.append(
-                f"**类型**: {self._content.header_data.get('notification_type')}"
-            )
-        if self._content.header_data.get("notification_format"):
-            markdown_parts.append(
-                f"**格式**: {self._content.header_data.get('notification_format')}"
-            )
-        if self._content.header_data.get("notification_source"):
-            markdown_parts.append(
-                f"**来源**: {self._content.header_data.get('notification_source')}"
-            )
+
         if self._content.header_data.get("chart_id"):
             markdown_parts.append(
                 f"**图表ID**: {self._content.header_data.get('chart_id')}"
@@ -331,7 +320,7 @@ class WebhookNotification(BaseNotification):
                     },
                     "subtitle": {
                         "tag": "plain_text",
-                        "content": "点击标题跳转到报表地址",
+                        "content": "点击跳转到报表地址",
                     },
                 },
             },
@@ -370,9 +359,6 @@ class WebhookNotification(BaseNotification):
             return self._get_feishu_payload()
 
         header_content = {
-            "notification_format": self._content.header_data.get("notification_format"),
-            "notification_type": self._content.header_data.get("notification_type"),
-            "notification_source": self._content.header_data.get("notification_source"),
             "chart_id": self._content.header_data.get("chart_id"),
             "dashboard_id": self._content.header_data.get("dashboard_id"),
         }
